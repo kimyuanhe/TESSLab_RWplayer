@@ -41,12 +41,16 @@ h1{font-size:1.8rem} h2{font-size:1.2rem}
 ol.steps{margin:0;padding-left:1.3em;display:grid;gap:8px}
 .label{font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .field{display:grid;gap:6px;min-width:0}
-input[type=text],textarea{font:inherit;font-family:var(--f-mono);font-size:.9rem;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%;max-width:100%}
+input[type=text],textarea{box-sizing:border-box;font:inherit;font-family:var(--f-mono);font-size:.9rem;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%;max-width:100%}
 textarea{min-height:6rem;resize:vertical;word-break:break-all}
 button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px 16px;cursor:pointer}
 button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--left);outline-offset:2px}
 .start{font-size:1.6rem;padding:22px;width:100%;background:var(--ink);color:var(--panel);border-color:var(--ink)}
 .start[disabled]{opacity:.4;cursor:not-allowed}
+.times{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:12px}
+.times button{font-family:var(--f-mono);font-size:clamp(1.6rem,7vw,2.2rem);font-weight:600;padding:20px 10px;background:var(--ink);color:var(--panel);border-color:var(--ink);font-variant-numeric:tabular-nums}
+.times button[disabled]{opacity:.4;cursor:not-allowed}
+.pickhead{font-family:var(--f-display);font-weight:700;font-size:1.25rem;margin:0}
 .msg{margin:0;font-weight:700}
 .msg.err{color:var(--danger)}
 .hint{color:var(--muted);margin:0;font-size:.95rem}
@@ -80,7 +84,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 <!-- Screen 1: no session loaded -->
 <div class="wrap" id="pasteView" hidden>
   <header>
-    <h1>Mirror Session Player</h1>
+    <h1>RW Player</h1>
     <p class="hint">Open this page from the tablet link the research team sent you. If you were given a link to paste instead, paste it here.</p>
   </header>
   <section class="panel">
@@ -108,13 +112,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   </section>
   <section class="panel">
     <h2>Before you start</h2>
-    <ol class="steps">
-      <li>Sit in the chair and put on the pseudophones.</li>
-      <li>Open today's survey on your phone.</li>
-      <li>Tap <b>Start</b> on both tablets at the same moment.</li>
-    </ol>
+    <ol class="steps" id="steps"></ol>
     <p class="msg" id="readyMsg"></p>
-    <button type="button" class="start" id="startBtn" disabled>Start</button>
+    <button type="button" class="start" id="startBtn" disabled hidden>Start</button>
+    <div id="pickWrap" hidden>
+      <p class="pickhead">Tap the start time shown on the Left tablet</p>
+      <div class="times" id="timePick"></div>
+    </div>
     <p class="hint" id="delayHint"></p>
   </section>
   <p class="clock">Tablet clock <span id="clock">--:--:--</span> · <button type="button" class="linkish" id="otherLink">Use a different link</button></p>
@@ -127,7 +131,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     <div class="small">Session starts at</div>
     <div class="when" id="waitWhen">--:--</div>
     <div class="count" id="waitCount"></div>
-    <div class="small">Both tablets should show the same start time. If they do not, tap Start again on both tablets together.</div>
+    <div class="small" id="waitNote"></div>
     <button type="button" id="againBtn">Start again</button>
   </div>
   <div class="overlay" id="question" hidden></div>
@@ -199,8 +203,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('sideBig').textContent = L ? 'LEFT TABLET' : 'RIGHT TABLET';
     const dateTxt = cfg.date ? new Date(cfg.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) : '';
     $('sideSub').textContent = ['Day ' + cfg.day, cfg.pid ? 'Participant ' + cfg.pid : '', dateTxt].filter(Boolean).join(' · ');
-    const dMin = Math.round(cfg.delay/60);
-    $('delayHint').textContent = `The session begins ${dMin} to ${dMin+1} minutes after you tap Start, and lasts about ${Math.round(2*cfg.parts.length*cfg.slot/60)} minutes.`;
+    const dMin = waitMin(), mins = Math.round(2*cfg.parts.length*cfg.slot/60);
+    const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li>';
+    $('steps').innerHTML = L
+      ? common + '<li>When you are all ready, tap the <b>Start</b> button on this tablet.</li><li>Then go to the Right tablet and tap the start time shown here.</li>'
+      : common + '<li>When you are all ready, tap the <b>Start</b> button on the Left tablet.</li><li>Then tap the same start time below on this tablet.</li>';
+    $('startBtn').hidden = !L;
+    $('pickWrap').hidden = L;
+    $('delayHint').textContent = L
+      ? `The session begins ${dMin} minutes after the minute you tap Start, and lasts about ${mins} minutes.`
+      : `The session lasts about ${mins} minutes.`;
+    lastPickKey = '';
     videoUrl = cfg.video || '';
     $('filePanel').hidden = !!videoUrl;
     $('fileLabel').textContent = `Choose today's ${L ? 'left' : 'right'} video`;
@@ -220,7 +233,30 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('readyMsg').className = 'msg' + (err ? ' err' : '');
     $('readyMsg').textContent = err || 'Ready.';
     $('startBtn').disabled = !!err;
+    readyErr = !!err; lastPickKey = ''; renderPicker();
   }
+
+  // ---------- shared start time ----------
+  // Left: start = the whole minute of the tap + wait. Right: the participant picks that same time.
+  let readyErr = true, lastPickKey = '';
+  const MIN = 60000;
+  const waitMin = () => Math.max(2, Math.round((cfg && cfg.delay || 120) / 60));
+  const fmtClock = t => new Date(t).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  function candidates(){
+    // times the Left tablet could be showing if it was tapped in the last few minutes
+    const base = Math.floor(now()/MIN)*MIN + waitMin()*MIN, out = [];
+    for(let k = 2; k >= 0; k--){ const t = base - k*MIN; if(t - now() >= 15000) out.push(t); }
+    return out;
+  }
+  function renderPicker(){
+    if(!cfg || cfg.side !== 'R' || $('readyView').hidden) return;
+    const c = candidates(), key = c.join(',') + '|' + readyErr;
+    if(key === lastPickKey) return;
+    lastPickKey = key;
+    $('timePick').innerHTML = c.map(t => `<button type="button" data-t="${t}" ${readyErr ? 'disabled' : ''}>${fmtClock(t)}</button>`).join('');
+    $('timePick').querySelectorAll('button').forEach(b => b.onclick = () => beginSession(Number(b.dataset.t)));
+  }
+  setInterval(renderPicker, 500);
 
   $('fileIn').onchange = e => {
     const f = e.target.files[0]; if(!f) return;
@@ -282,10 +318,15 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   function overlay(id){ ['waitOv','question','doneOv'].forEach(o => $(o).hidden = o !== id); }
 
   // ---------- start ----------
-  $('startBtn').onclick = async () => {
+  $('startBtn').onclick = () => beginSession(Math.floor(now()/MIN)*MIN + waitMin()*MIN);
+  async function beginSession(start){
+    // runs inside the tap, which lets the tablet play sound later
     try{ vid.muted = false; vid.dataset.src = ''; vid.src = silentWavUrl(); await vid.play(); vid.pause(); }catch(e){}
     running = true; log = [];
-    t0 = Math.ceil((now() + cfg.delay*1000) / GRID) * GRID;
+    t0 = start;
+    $('waitNote').textContent = cfg.side === 'L'
+      ? 'Now go to the Right tablet and tap this same time there.'
+      : 'This should match the time on the Left tablet. If it does not, tap Start again.';
     $('stage').hidden = false;
     try{ await $('stage').requestFullscreen(); }catch(e){}
     try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
@@ -294,7 +335,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   $('againBtn').onclick = () => { stopAll(); $('startBtn').focus(); };
 
   async function run(start){
-    $('waitWhen').textContent = fmtHM(start);
+    $('waitWhen').textContent = fmtClock(start);
     overlay('waitOv'); hud('');
     // countdown, and load the video while waiting
     loadVideo(videoUrl);
