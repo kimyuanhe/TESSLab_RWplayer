@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Mirror Session Player</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Familjen+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: participant screen. One column, very large type, one main action. Playback stage is always black. */
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --ink:#1b2129; --muted:#5d6672; --line:#d9dde3;
+  --left:#2f5fa8; --right:#b07418; --on-side:#ffffff; --danger:#b3261e;
+  --f-display:"Familjen Grotesk",system-ui,sans-serif;
+  --f-body:"Atkinson Hyperlegible",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161b; --panel:#1b2128; --ink:#e7eaee; --muted:#9aa3ae; --line:#2e3640;
+  --left:#3f6fbd; --right:#b8801f; --danger:#f2867d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161b; --panel:#1b2128; --ink:#e7eaee; --muted:#9aa3ae; --line:#2e3640;
+  --left:#3f6fbd; --right:#b8801f; --danger:#f2867d; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:18px;line-height:1.5}
+.wrap{max-width:640px;margin:0 auto;padding-inline:16px;padding-block:24px 48px;display:grid;gap:20px}
+.side{border-radius:14px;padding:22px 20px;color:var(--on-side);display:grid;gap:4px}
+.side.L{background:var(--left)} .side.R{background:var(--right)}
+.side .big{font-family:var(--f-display);font-weight:700;font-size:clamp(2.6rem,12vw,4.2rem);line-height:1;letter-spacing:.01em}
+.side .sub{font-size:1.05rem;opacity:.92}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:14px;min-width:0}
+h1,h2{font-family:var(--f-display);font-weight:700;margin:0;text-wrap:balance}
+h1{font-size:1.8rem} h2{font-size:1.2rem}
+ol.steps{margin:0;padding-left:1.3em;display:grid;gap:8px}
+.label{font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.field{display:grid;gap:6px;min-width:0}
+input[type=text],textarea{font:inherit;font-family:var(--f-mono);font-size:.9rem;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%;max-width:100%}
+textarea{min-height:6rem;resize:vertical;word-break:break-all}
+button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px 16px;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--left);outline-offset:2px}
+.start{font-size:1.6rem;padding:22px;width:100%;background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.start[disabled]{opacity:.4;cursor:not-allowed}
+.msg{margin:0;font-weight:700}
+.msg.err{color:var(--danger)}
+.hint{color:var(--muted);margin:0;font-size:.95rem}
+.clock{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--muted);font-size:.95rem}
+.linkish{background:none;border:none;padding:0;color:var(--muted);text-decoration:underline;font-weight:400;font-size:.95rem}
+/* stage */
+#stage{position:fixed;inset:0;background:#000;z-index:50;display:flex;align-items:center;justify-content:center}
+#stage video{width:100%;height:100%;object-fit:contain;background:#000}
+#stage video.off{visibility:hidden}
+#hud{position:absolute;left:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px));color:#5a5a5a;font-family:var(--f-mono);font-size:12px;user-select:none}
+#stopBtn{position:absolute;right:12px;top:calc(10px + env(safe-area-inset-top,0px));background:transparent;color:#4a4a4a;border:1px solid #2a2a2a;font-size:12px;padding:6px 10px;font-weight:400}
+#stopBtn.confirm{color:#ff8a80;border-color:#ff8a80}
+#probe{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-weight:600;font-size:clamp(48px,11vmin,120px);line-height:1;color:#fff;background:rgba(0,0,0,.62);padding:.12em .28em;border-radius:.12em;font-variant-numeric:tabular-nums;pointer-events:none}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4vmin;color:#e8e8e8;text-align:center;padding:24px}
+.overlay .part{font-family:var(--f-display);font-size:clamp(28px,6vmin,56px);font-weight:700;color:#fff}
+.overlay .ask{font-size:clamp(20px,4vmin,36px);max-width:24ch}
+.overlay .opts{display:grid;grid-template-columns:repeat(2,minmax(0,auto));gap:2vmin 8vmin;font-family:var(--f-mono);font-size:clamp(28px,6vmin,60px);font-variant-numeric:tabular-nums}
+.overlay .opts b{color:#9a9a9a;font-weight:400;margin-right:.4em}
+.overlay .when{font-family:var(--f-mono);font-size:clamp(40px,10vmin,96px);color:#fff;font-variant-numeric:tabular-nums}
+.overlay .count{font-family:var(--f-mono);font-size:clamp(22px,5vmin,44px);color:#bdbdbd;font-variant-numeric:tabular-nums}
+.overlay button{background:#1d1d1d;color:#ddd;border-color:#3a3a3a;font-size:clamp(16px,3vmin,22px)}
+.overlay .small{font-size:clamp(15px,2.6vmin,20px);color:#a8a8a8;max-width:40ch}
+.logbox{max-width:100%;overflow:auto;max-height:50vh;text-align:left}
+.logbox table{border-collapse:collapse;font-family:var(--f-mono);font-size:13px;color:#ccc}
+.logbox td,.logbox th{padding:4px 8px;border-bottom:1px solid #333;white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- Screen 1: no session loaded -->
+<div class="wrap" id="pasteView" hidden>
+  <header>
+    <h1>Mirror Session Player</h1>
+    <p class="hint">Open this page from the tablet link the research team sent you. If you were given a link to paste instead, paste it here.</p>
+  </header>
+  <section class="panel">
+    <div class="field">
+      <label class="label" for="pasteBox">Tablet link</label>
+      <textarea id="pasteBox" placeholder="Paste the Left or Right tablet link"></textarea>
+    </div>
+    <p class="msg err" id="pasteMsg"></p>
+    <button type="button" id="pasteBtn">Open session</button>
+  </section>
+</div>
+
+<!-- Screen 2: ready -->
+<div class="wrap" id="readyView" hidden>
+  <div class="side" id="sideBanner">
+    <span class="big" id="sideBig">LEFT TABLET</span>
+    <span class="sub" id="sideSub"></span>
+  </div>
+  <section class="panel" id="filePanel" hidden>
+    <div class="field">
+      <label class="label" for="fileIn" id="fileLabel">Choose today's video</label>
+      <input type="file" id="fileIn" accept="video/*">
+    </div>
+    <p class="hint" id="fileHint"></p>
+  </section>
+  <section class="panel">
+    <h2>Before you start</h2>
+    <ol class="steps">
+      <li>Sit in the chair and put on the pseudophones.</li>
+      <li>Open today's survey on your phone.</li>
+      <li>Tap <b>Start</b> on both tablets at the same moment.</li>
+    </ol>
+    <p class="msg" id="readyMsg"></p>
+    <button type="button" class="start" id="startBtn" disabled>Start</button>
+    <p class="hint" id="delayHint"></p>
+  </section>
+  <p class="clock">Tablet clock <span id="clock">--:--:--</span> · <button type="button" class="linkish" id="otherLink">Use a different link</button></p>
+</div>
+
+<div id="stage" hidden>
+  <video id="vid" class="off" playsinline preload="auto"></video>
+  <div id="probe" hidden></div>
+  <div class="overlay" id="waitOv" hidden>
+    <div class="small">Session starts at</div>
+    <div class="when" id="waitWhen">--:--</div>
+    <div class="count" id="waitCount"></div>
+    <div class="small">Both tablets should show the same start time. If they do not, tap Start again on both tablets together.</div>
+    <button type="button" id="againBtn">Start again</button>
+  </div>
+  <div class="overlay" id="question" hidden></div>
+  <div class="overlay" id="doneOv" hidden>
+    <div class="part">Today's session is complete</div>
+    <div class="ask">Thank you. Please finish your survey if you have not already.</div>
+    <button type="button" id="logBtn">Show timing log</button>
+    <div class="logbox" id="logBox" hidden></div>
+    <button type="button" id="copyBtn" hidden>Copy log as CSV</button>
+  </div>
+  <div id="hud"></div>
+  <button type="button" id="stopBtn">Stop</button>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const store = {get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+  const pad = (n,w=2) => String(n).padStart(w,'0');
+  const fmt = t => { const d = new Date(t); return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); };
+  const fmtHM = t => { const d = new Date(t); return pad(d.getHours())+':'+pad(d.getMinutes()); };
+  const now = () => Date.now();
+  const todayISO = () => { const d = new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); };
+  const GRID = 60000; // start times snap to whole minutes so both tablets agree
+  const PROBE_FROM = '|';
+
+  // ---------- session link ----------
+  function decodeToken(t){
+    t = (t || '').trim(); const i = t.lastIndexOf('#'); if(i >= 0) t = t.slice(i+1);
+    if(!t.startsWith('m1')) throw new Error('not a session link');
+    let b = t.slice(2).replace(/-/g,'+').replace(/_/g,'/'); while(b.length % 4) b += '=';
+    const bin = atob(b), bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const cfg = JSON.parse(new TextDecoder().decode(bytes));
+    if(!cfg || !Array.isArray(cfg.parts) || !cfg.parts.length || !/^[LR]$/.test(cfg.side)) throw new Error('incomplete');
+    return cfg;
+  }
+
+  // ---------- probes (must match the Session Builder exactly) ----------
+  function hashStr(s){ let h = 2166136261 >>> 0; for(let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function mulberry32(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function probeFor(code, side, k, dur){
+    const rng = mulberry32(hashStr(code.trim() + PROBE_FROM + side + PROBE_FROM + k));
+    const num = 10 + Math.floor(rng()*90);
+    let lo = Math.max(20, dur*0.15), hi = Math.min(dur - 20, dur*0.85);
+    if(!(hi > lo)){ lo = dur*0.2; hi = dur*0.8; }
+    const at = lo + rng()*(hi - lo);
+    const x = rng() < 0.5 ? 15 + rng()*20 : 65 + rng()*20;
+    const y = 20 + rng()*60;
+    const opts = [num];
+    while(opts.length < 4){ const d = 10 + Math.floor(rng()*90); if(!opts.includes(d)) opts.push(d); }
+    for(let i=opts.length-1;i>0;i--){ const j = Math.floor(rng()*(i+1)); [opts[i],opts[j]] = [opts[j],opts[i]]; }
+    return {num, at, x, y, opts, correct:'ABCD'[opts.indexOf(num)]};
+  }
+
+  // ---------- state ----------
+  let cfg = null, videoUrl = '', localDur = NaN;
+  let running = false, wakeLock = null, log = [], t0 = 0;
+  const lockKey = () => 'mp-played-' + cfg.code + '-' + cfg.side;
+
+  function showView(name){
+    $('pasteView').hidden = name !== 'paste';
+    $('readyView').hidden = name !== 'ready';
+  }
+
+  function load(token){
+    try{ cfg = decodeToken(token); }catch(e){ return false; }
+    const L = cfg.side === 'L';
+    $('sideBanner').className = 'side ' + cfg.side;
+    $('sideBig').textContent = L ? 'LEFT TABLET' : 'RIGHT TABLET';
+    const dateTxt = cfg.date ? new Date(cfg.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) : '';
+    $('sideSub').textContent = ['Day ' + cfg.day, cfg.pid ? 'Participant ' + cfg.pid : '', dateTxt].filter(Boolean).join(' · ');
+    const dMin = Math.round(cfg.delay/60);
+    $('delayHint').textContent = `The session begins ${dMin} to ${dMin+1} minutes after you tap Start, and lasts about ${Math.round(2*cfg.parts.length*cfg.slot/60)} minutes.`;
+    videoUrl = cfg.video || '';
+    $('filePanel').hidden = !!videoUrl;
+    $('fileLabel').textContent = `Choose today's ${L ? 'left' : 'right'} video`;
+    $('fileHint').textContent = cfg.label ? 'Expected file: ' + cfg.label : '';
+    showView('ready');
+    updateReady();
+    return true;
+  }
+
+  function updateReady(){
+    let err = '';
+    const need = cfg.parts[cfg.parts.length-1][1];
+    if(cfg.date && cfg.date !== todayISO()) err = `This session is for ${new Date(cfg.date+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})}. Please use today's links.`;
+    else if(cfg.lock && store.get(lockKey())) err = 'This session has already been played on this tablet. Please contact the research team.';
+    else if(!videoUrl) err = 'Choose the video file to continue.';
+    else if(!cfg.video && isFinite(localDur) && localDur + 0.5 < need) err = `This video is shorter than expected (${Math.floor(localDur/60)}:${pad(Math.round(localDur%60))}). Check that you chose the right file.`;
+    $('readyMsg').className = 'msg' + (err ? ' err' : '');
+    $('readyMsg').textContent = err || 'Ready.';
+    $('startBtn').disabled = !!err;
+  }
+
+  $('fileIn').onchange = e => {
+    const f = e.target.files[0]; if(!f) return;
+    if(videoUrl && !cfg.video) URL.revokeObjectURL(videoUrl);
+    videoUrl = URL.createObjectURL(f); localDur = NaN; updateReady();
+    const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+    v.onloadedmetadata = () => { localDur = v.duration; updateReady(); };
+    v.src = videoUrl;
+  };
+
+  $('pasteBtn').onclick = () => {
+    if(load($('pasteBox').value)){ store.set('mp-last', $('pasteBox').value.trim()); $('pasteMsg').textContent = ''; }
+    else $('pasteMsg').textContent = 'That is not a session link. Check that you copied the whole link.';
+  };
+  $('otherLink').onclick = () => { $('pasteBox').value = ''; showView('paste'); };
+
+  (function tick(){ $('clock').textContent = fmt(now()); setTimeout(tick, 250); })();
+
+  // ---------- timing helpers ----------
+  function waitUntil(t){
+    return new Promise(res => {
+      (function loop(){
+        if(!running) return res(false);
+        const left = t - now();
+        if(left <= 0) return res(true);
+        if(left > 40) setTimeout(loop, Math.min(left - 30, 1000));
+        else requestAnimationFrame(loop);
+      })();
+    });
+  }
+  const vid = $('vid');
+  function silentWavUrl(){
+    const sr = 8000, n = 800, buf = new ArrayBuffer(44 + n*2), dv = new DataView(buf);
+    const w = (o,s) => [...s].forEach((c,i) => dv.setUint8(o+i, c.charCodeAt(0)));
+    w(0,'RIFF'); dv.setUint32(4,36+n*2,true); w(8,'WAVE'); w(12,'fmt '); dv.setUint32(16,16,true);
+    dv.setUint16(20,1,true); dv.setUint16(22,1,true); dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true);
+    dv.setUint16(32,2,true); dv.setUint16(34,16,true); w(36,'data'); dv.setUint32(40,n*2,true);
+    return URL.createObjectURL(new Blob([buf], {type:'audio/wav'}));
+  }
+  function loadVideo(url){
+    if(vid.dataset.src === url && vid.readyState >= 1) return Promise.resolve();
+    return new Promise(res => {
+      const done = () => { vid.removeEventListener('canplaythrough', done); res(); };
+      vid.addEventListener('canplaythrough', done);
+      vid.dataset.src = url; vid.src = url; vid.load();
+      setTimeout(done, 6000);
+    });
+  }
+  function seekTo(t){
+    return new Promise(res => {
+      if(Math.abs(vid.currentTime - t) < 0.02) return res();
+      const done = () => { vid.removeEventListener('seeked', done); res(); };
+      vid.addEventListener('seeked', done);
+      try{ vid.currentTime = t; }catch(e){ done(); }
+      setTimeout(done, 4000);
+    });
+  }
+  function hud(t){ $('hud').textContent = t; }
+  function overlay(id){ ['waitOv','question','doneOv'].forEach(o => $(o).hidden = o !== id); }
+
+  // ---------- start ----------
+  $('startBtn').onclick = async () => {
+    try{ vid.muted = false; vid.dataset.src = ''; vid.src = silentWavUrl(); await vid.play(); vid.pause(); }catch(e){}
+    running = true; log = [];
+    t0 = Math.ceil((now() + cfg.delay*1000) / GRID) * GRID;
+    $('stage').hidden = false;
+    try{ await $('stage').requestFullscreen(); }catch(e){}
+    try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    run(t0);
+  };
+  $('againBtn').onclick = () => { stopAll(); $('startBtn').focus(); };
+
+  async function run(start){
+    $('waitWhen').textContent = fmtHM(start);
+    overlay('waitOv'); hud('');
+    // countdown, and load the video while waiting
+    loadVideo(videoUrl);
+    (function count(){
+      if(!running || now() >= start){ return; }
+      const s = Math.ceil((start - now())/1000);
+      $('waitCount').textContent = `in ${Math.floor(s/60)}:${pad(s%60)}`;
+      setTimeout(count, 250);
+    })();
+    if(!await waitUntil(start)) return;
+    overlay(null);
+    if(cfg.lock) store.set(lockKey(), new Date().toISOString());
+
+    const sm = cfg.slot*1000, offset = cfg.side === cfg.first ? 0 : 1, total = 2*cfg.parts.length;
+    for(let k=0; k<cfg.parts.length && running; k++){
+      const [s, e] = cfg.parts[k], dur = e - s;
+      const slot = 2*k + offset, part = slot + 1, slotStart = start + slot*sm;
+      hud(`Part ${part} at ${fmt(slotStart)}`);
+      if(!await waitUntil(slotStart - 6000)) return;
+      await loadVideo(videoUrl);
+      await seekTo(s);
+      if(!await waitUntil(slotStart)) return;
+      hud('');
+      const pr = probeFor(cfg.code, cfg.side, k, dur);
+      vid.classList.remove('off');
+      const p = vid.play();
+      const entry = {part, side:cfg.side, scheduled:fmt(slotStart), err:Math.round(now() - slotStart), num:pr.num, at:null, correct:pr.correct};
+      log.push(entry);
+      try{ await p; }catch(err){ hud('Playback was blocked. Tap Stop twice and tap Start again.'); }
+      const probeEl = $('probe'); let shownAt = null, clipDone = false;
+      probeEl.textContent = pr.num; probeEl.style.left = pr.x + '%'; probeEl.style.top = pr.y + '%';
+      (function watch(){
+        if(clipDone || !running){ probeEl.hidden = true; return; }
+        const ct = vid.currentTime - s;
+        if(shownAt === null && ct >= pr.at){ shownAt = ct; entry.at = +ct.toFixed(2); probeEl.hidden = false; }
+        if(shownAt !== null && ct >= shownAt + cfg.psec) probeEl.hidden = true;
+        requestAnimationFrame(watch);
+      })();
+      await new Promise(res => {
+        let finished = false;
+        const end = () => { if(finished) return; finished = true; vid.removeEventListener('ended', end); vid.pause(); res(); };
+        vid.addEventListener('ended', end);
+        waitUntil(slotStart + sm - 300).then(end);
+        (function stopAtPartEnd(){
+          if(finished) return;
+          if(!running || vid.currentTime >= e - 0.02) return end();
+          requestAnimationFrame(stopAtPartEnd);
+        })();
+      });
+      clipDone = true; probeEl.hidden = true; vid.classList.add('off');
+      if(!running) return;
+      $('question').innerHTML = `<div class="part">Part ${part}</div><div class="ask">Which number appeared on screen? Answer on your phone.</div><div class="opts">${pr.opts.map((o,i)=>`<div><b>${'ABCD'[i]}</b>${o}</div>`).join('')}</div>`;
+      overlay('question');
+      if(!await waitUntil(slotStart + sm - 300)) return;
+      overlay(null);
+    }
+    hud('The session continues on the other tablet.');
+    if(!await waitUntil(start + total*sm)) return;
+    hud('');
+    overlay('doneOv');
+    try{ wakeLock && wakeLock.release(); }catch(e){}
+  }
+
+  function stopAll(){
+    running = false; vid.pause(); vid.classList.add('off');
+    $('probe').hidden = true; overlay(null);
+    $('stage').hidden = true;
+    try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+    try{ wakeLock && wakeLock.release(); }catch(e){}
+    updateReady();
+  }
+  let stopArmed = null;
+  $('stopBtn').onclick = () => {
+    if(!stopArmed){
+      $('stopBtn').classList.add('confirm'); $('stopBtn').textContent = 'Tap again to stop';
+      stopArmed = setTimeout(() => { stopArmed = null; $('stopBtn').classList.remove('confirm'); $('stopBtn').textContent = 'Stop'; }, 3000);
+      return;
+    }
+    clearTimeout(stopArmed); stopArmed = null;
+    $('stopBtn').classList.remove('confirm'); $('stopBtn').textContent = 'Stop';
+    stopAll();
+  };
+
+  // ---------- log ----------
+  $('logBtn').onclick = () => {
+    $('logBox').innerHTML = '<table><tr><th>Part</th><th>Side</th><th>Scheduled</th><th>Start error ms</th><th>Number</th><th>Shown at s</th><th>Correct</th></tr>' +
+      log.map(r => `<tr><td>${r.part}</td><td>${r.side}</td><td>${r.scheduled}</td><td>${r.err}</td><td>${r.num}</td><td>${r.at===null?'not shown':r.at}</td><td>${r.correct}</td></tr>`).join('') + '</table>';
+    $('logBox').hidden = false; $('copyBtn').hidden = false;
+  };
+  $('copyBtn').onclick = () => {
+    const csv = 'probe_code,part,side,scheduled,start_error_ms,probe_number,probe_shown_at_s,correct_letter\n' +
+      log.map(r => `"${cfg.code.replace(/"/g,'""')}",${r.part},${r.side},${r.scheduled},${r.err},${r.num},${r.at===null?'':r.at},${r.correct}`).join('\n');
+    navigator.clipboard.writeText(csv).then(() => { $('copyBtn').textContent = 'Copied'; })
+      .catch(() => { $('copyBtn').textContent = 'Copy not available here'; });
+  };
+
+  // ---------- boot ----------
+  if(!(location.hash.length > 3 && load(location.hash))){
+    const last = store.get('mp-last');
+    if(!(last && load(last))) showView('paste');
+  }
+})();
+</script>
+</body>
+</html>
