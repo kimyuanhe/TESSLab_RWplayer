@@ -11,7 +11,7 @@ body{margin:0;font-family:system-ui,sans-serif;font-size:14px}
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<title>Mirror Session Player</title>
+<title>RW Player</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Familjen+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -116,8 +116,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     <p class="msg" id="readyMsg"></p>
     <button type="button" class="start" id="startBtn" disabled hidden>Start</button>
     <div id="pickWrap" hidden>
-      <p class="pickhead">Tap the start time shown on the Left tablet</p>
-      <div class="times" id="timePick"></div>
+      <button type="button" class="start" id="readyBtn" disabled>Ready</button>
+      <p class="hint"><button type="button" class="linkish" id="manualLink">Not starting? Choose the time shown on the Left tablet</button></p>
+      <div id="manualPick" hidden>
+        <p class="pickhead">Tap the start time shown on the Left tablet</p>
+        <div class="times" id="timePick"></div>
+      </div>
     </div>
     <p class="hint" id="delayHint"></p>
   </section>
@@ -137,7 +141,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   <div class="overlay" id="question" hidden></div>
   <div class="overlay" id="doneOv" hidden>
     <div class="part">Today's session is complete</div>
-    <div class="ask">Thank you. Please finish your survey if you have not already.</div>
+    <div class="ask">Thank you. Please enter the numbers you wrote down in today's survey.</div>
     <button type="button" id="logBtn">Show timing log</button>
     <div class="logbox" id="logBox" hidden></div>
     <button type="button" id="copyBtn" hidden>Copy log as CSV</button>
@@ -165,7 +169,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     let b = t.slice(2).replace(/-/g,'+').replace(/_/g,'/'); while(b.length % 4) b += '=';
     const bin = atob(b), bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
     const cfg = JSON.parse(new TextDecoder().decode(bytes));
-    if(!cfg || !Array.isArray(cfg.parts) || !cfg.parts.length || !/^[LR]$/.test(cfg.side)) throw new Error('incomplete');
+    if(!cfg || !Array.isArray(cfg.seq) || !cfg.seq.length || !/^[LR]$/.test(cfg.side)) throw new Error('incomplete');
     return cfg;
   }
 
@@ -203,11 +207,11 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('sideBig').textContent = L ? 'LEFT TABLET' : 'RIGHT TABLET';
     const dateTxt = cfg.date ? new Date(cfg.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) : '';
     $('sideSub').textContent = ['Day ' + cfg.day, cfg.pid ? 'Participant ' + cfg.pid : '', dateTxt].filter(Boolean).join(' · ');
-    const dMin = waitMin(), mins = Math.round(2*cfg.parts.length*cfg.slot/60);
-    const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li>';
+    const dMin = waitMin(), mins = Math.max(1, Math.round((cfg.seq.reduce((a, x) => a + x[2] - x[1], 0) + (cfg.gap || 0) * (cfg.seq.length - 1)) / 60));
+    const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li><li>Keep a pen and paper nearby. Write down each number that appears on the screen.</li>';
     $('steps').innerHTML = L
-      ? common + '<li>When you are all ready, tap the <b>Start</b> button on this tablet.</li><li>Then go to the Right tablet and tap the start time shown here.</li>'
-      : common + '<li>When you are all ready, tap the <b>Start</b> button on the Left tablet.</li><li>Then tap the same start time below on this tablet.</li>';
+      ? common + '<li>When you are all ready, tap the <b>Start</b> button on this tablet.</li><li>Then tap <b>Ready</b> on the Right tablet.</li>'
+      : common + '<li>When you are all ready, tap the <b>Start</b> button on the Left tablet.</li><li>Then tap <b>Ready</b> on this tablet. It will start with the Left tablet by itself.</li>';
     $('startBtn').hidden = !L;
     $('pickWrap').hidden = L;
     $('delayHint').textContent = L
@@ -225,7 +229,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 
   function updateReady(){
     let err = '';
-    const need = cfg.parts[cfg.parts.length-1][1];
+    const need = Math.max(...cfg.seq.filter(x => x[0] === cfg.side).map(x => x[2]), 0);
     if(cfg.date && cfg.date !== todayISO()) err = `This session is for ${new Date(cfg.date+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})}. Please use today's links.`;
     else if(cfg.lock && store.get(lockKey())) err = 'This session has already been played on this tablet. Please contact the research team.';
     else if(!videoUrl) err = 'Choose the video file to continue.';
@@ -233,6 +237,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('readyMsg').className = 'msg' + (err ? ' err' : '');
     $('readyMsg').textContent = err || 'Ready.';
     $('startBtn').disabled = !!err;
+    $('readyBtn').disabled = !!err;
     readyErr = !!err; lastPickKey = ''; renderPicker();
   }
 
@@ -254,9 +259,42 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     if(key === lastPickKey) return;
     lastPickKey = key;
     $('timePick').innerHTML = c.map(t => `<button type="button" data-t="${t}" ${readyErr ? 'disabled' : ''}>${fmtClock(t)}</button>`).join('');
-    $('timePick').querySelectorAll('button').forEach(b => b.onclick = () => beginSession(Number(b.dataset.t)));
+    $('timePick').querySelectorAll('button').forEach(b => b.onclick = () => beginSession(Number(b.dataset.t), 'manual'));
   }
   setInterval(renderPicker, 500);
+
+  // ---------- linking the two tablets through ntfy.sh ----------
+  // The Left tablet posts its start time to a private-ish channel named from the session settings.
+  // The Right tablet listens on the same channel. Only a start time is sent.
+  const RELAY = 'https://ntfy.sh/';
+  function roomName(){
+    const s = [cfg.code, cfg.pid, cfg.day, cfg.date, cfg.gap, cfg.first, cfg.seq.length].join('|');
+    return 'rwplayer-' + hashStr(s + '#a').toString(16) + hashStr(s + '#b').toString(16);
+  }
+  function publishStart(t){
+    return fetch(RELAY + roomName(), {method:'POST', body:'start:' + t}).then(r => { if(!r.ok) throw new Error('relay ' + r.status); });
+  }
+  function listenForStart(onStart){
+    let latest = 0, es = null, timer = null, closed = false;
+    const handle = m => {
+      if(closed || !m || m.event !== 'message' || typeof m.message !== 'string') return;
+      const t = Number(m.message.replace(/^start:/, ''));
+      if(!isFinite(t) || (m.time || 0) < latest) return;
+      latest = m.time || 0;
+      onStart(t);
+    };
+    const poll = () => fetch(RELAY + roomName() + '/json?poll=1&since=15m')
+      .then(r => r.text())
+      .then(txt => txt.split('\n').filter(Boolean).forEach(l => { try{ handle(JSON.parse(l)); }catch(e){} }))
+      .catch(() => {});
+    try{
+      es = new EventSource(RELAY + roomName() + '/sse?since=15m');
+      es.onmessage = ev => { try{ handle(JSON.parse(ev.data)); }catch(e){} };
+    }catch(e){}
+    poll(); timer = setInterval(poll, 20000);
+    return () => { closed = true; try{ es && es.close(); }catch(e){} clearInterval(timer); };
+  }
+  $('manualLink').onclick = () => { $('manualPick').hidden = !$('manualPick').hidden; lastPickKey = ''; renderPicker(); };
 
   $('fileIn').onchange = e => {
     const f = e.target.files[0]; if(!f) return;
@@ -318,43 +356,78 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   function overlay(id){ ['waitOv','question','doneOv'].forEach(o => $(o).hidden = o !== id); }
 
   // ---------- start ----------
-  $('startBtn').onclick = () => beginSession(Math.floor(now()/MIN)*MIN + waitMin()*MIN);
-  async function beginSession(start){
+  let stopListen = null, joinMode = '', relayState = '', joinAt = 0;
+  $('startBtn').onclick = () => beginSession(Math.floor(now()/MIN)*MIN + waitMin()*MIN, 'left');
+  $('readyBtn').onclick = () => beginSession(null, 'auto');
+  async function beginSession(start, mode){
     // runs inside the tap, which lets the tablet play sound later
     try{ vid.muted = false; vid.dataset.src = ''; vid.src = silentWavUrl(); await vid.play(); vid.pause(); }catch(e){}
-    running = true; log = [];
-    t0 = start;
-    $('waitNote').textContent = cfg.side === 'L'
-      ? 'Now go to the Right tablet and tap this same time there.'
-      : 'This should match the time on the Left tablet. If it does not, tap Start again.';
+    running = true; log = []; t0 = start; joinMode = mode; joinAt = now(); relayState = '';
     $('stage').hidden = false;
+    setWaitNote();
+    if(mode === 'left'){
+      relayState = 'sending';
+      publishStart(start).then(() => { relayState = 'ok'; }, () => { relayState = 'fail'; }).then(setWaitNote);
+    }
+    if(mode === 'auto'){
+      stopListen = listenForStart(t => {
+        if(!running || t <= now() + 3000) return;     // ignore old or almost-past times
+        if(t0 && now() > t0 - 5000) return;            // too close to the start to change
+        if(t !== t0){ t0 = t; setWaitNote(); }
+      });
+    }
     try{ await $('stage').requestFullscreen(); }catch(e){}
     try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
-    run(t0);
-  };
-  $('againBtn').onclick = () => { stopAll(); $('startBtn').focus(); };
+    run();
+  }
+  function setWaitNote(){
+    let s;
+    if(joinMode === 'left') s = relayState === 'fail'
+      ? `The Right tablet could not be reached automatically. On the Right tablet, tap "Not starting?" and choose ${fmtClock(t0)}.`
+      : 'Now tap Ready on the Right tablet. It will start at the same time by itself.';
+    else if(joinMode === 'auto') s = t0 ? 'Starting together with the Left tablet.' : 'Waiting for the Left tablet. Tap Start on the Left tablet.';
+    else s = 'This should match the time on the Left tablet. If it does not, tap Start again.';
+    $('waitNote').textContent = s;
+  }
+  $('againBtn').onclick = () => { stopAll(); };
 
-  async function run(start){
-    $('waitWhen').textContent = fmtClock(start);
+  async function run(){
     overlay('waitOv'); hud('');
     // countdown, and load the video while waiting
     loadVideo(videoUrl);
     (function count(){
-      if(!running || now() >= start){ return; }
-      const s = Math.ceil((start - now())/1000);
+      if(!running) return;
+      if(!t0){
+        $('waitWhen').textContent = '--:--'; $('waitCount').textContent = '';
+        if(joinMode === 'auto' && now() - joinAt > 30000)
+          $('waitNote').textContent = 'Still waiting. If the Left tablet already shows a start time, tap Start again below, then tap "Not starting?" and choose that time.';
+        return setTimeout(count, 250);
+      }
+      $('waitWhen').textContent = fmtClock(t0);
+      if(now() >= t0) return;
+      const s = Math.ceil((t0 - now())/1000);
       $('waitCount').textContent = `in ${Math.floor(s/60)}:${pad(s%60)}`;
       setTimeout(count, 250);
     })();
+    // wait until a start time is known and close, then lock it in
+    while(running && (!t0 || now() < t0 - 1500)) await new Promise(r => setTimeout(r, 200));
+    if(!running) return;
+    const start = t0;
+    if(stopListen){ stopListen(); stopListen = null; }
     if(!await waitUntil(start)) return;
     overlay(null);
     if(cfg.lock) store.set(lockKey(), new Date().toISOString());
 
-    const sm = cfg.slot*1000, offset = cfg.side === cfg.first ? 0 : 1, total = 2*cfg.parts.length;
-    for(let k=0; k<cfg.parts.length && running; k++){
-      const [s, e] = cfg.parts[k], dur = e - s;
-      const slot = 2*k + offset, part = slot + 1, slotStart = start + slot*sm;
+    // the whole session: parts play back to back, switching tablets, with a short gap at each switch
+    const gapMs = (cfg.gap || 0) * 1000;
+    let t = start;
+    const sched = cfg.seq.map(([S, s, e], i) => { const o = {S, s, e, part:i+1, at:t}; t += (e - s)*1000 + gapMs; return o; });
+    const sessionEnd = t - gapMs;
+    const mine = sched.filter(x => x.S === cfg.side);
+    for(let k=0; k<mine.length && running; k++){
+      const {s, e, part, at:slotStart} = mine[k], dur = e - s, stopAt = slotStart + dur*1000;
       hud(`Part ${part} at ${fmt(slotStart)}`);
-      if(!await waitUntil(slotStart - 6000)) return;
+      // get the next part ready straight away, while the other tablet is playing
       await loadVideo(videoUrl);
       await seekTo(s);
       if(!await waitUntil(slotStart)) return;
@@ -362,7 +435,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
       const pr = probeFor(cfg.code, cfg.side, k, dur);
       vid.classList.remove('off');
       const p = vid.play();
-      const entry = {part, side:cfg.side, scheduled:fmt(slotStart), err:Math.round(now() - slotStart), num:pr.num, at:null, correct:pr.correct};
+      const entry = {part, side:cfg.side, scheduled:fmt(slotStart), err:Math.round(now() - slotStart), num:pr.num, at:null};
       log.push(entry);
       try{ await p; }catch(err){ hud('Playback was blocked. Tap Stop twice and tap Start again.'); }
       const probeEl = $('probe'); let shownAt = null, clipDone = false;
@@ -378,7 +451,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
         let finished = false;
         const end = () => { if(finished) return; finished = true; vid.removeEventListener('ended', end); vid.pause(); res(); };
         vid.addEventListener('ended', end);
-        waitUntil(slotStart + sm - 300).then(end);
+        waitUntil(stopAt - 60).then(end);   // never run into the other tablet's turn
         (function stopAtPartEnd(){
           if(finished) return;
           if(!running || vid.currentTime >= e - 0.02) return end();
@@ -387,19 +460,16 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
       });
       clipDone = true; probeEl.hidden = true; vid.classList.add('off');
       if(!running) return;
-      $('question').innerHTML = `<div class="part">Part ${part}</div><div class="ask">Which number appeared on screen? Answer on your phone.</div><div class="opts">${pr.opts.map((o,i)=>`<div><b>${'ABCD'[i]}</b>${o}</div>`).join('')}</div>`;
-      overlay('question');
-      if(!await waitUntil(slotStart + sm - 300)) return;
-      overlay(null);
     }
-    hud('The session continues on the other tablet.');
-    if(!await waitUntil(start + total*sm)) return;
+    if(sessionEnd > now() + 1000) hud('The session continues on the other tablet.');
+    if(!await waitUntil(sessionEnd)) return;
     hud('');
     overlay('doneOv');
     try{ wakeLock && wakeLock.release(); }catch(e){}
   }
 
   function stopAll(){
+    if(stopListen){ stopListen(); stopListen = null; }
     running = false; vid.pause(); vid.classList.add('off');
     $('probe').hidden = true; overlay(null);
     $('stage').hidden = true;
@@ -421,13 +491,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 
   // ---------- log ----------
   $('logBtn').onclick = () => {
-    $('logBox').innerHTML = '<table><tr><th>Part</th><th>Side</th><th>Scheduled</th><th>Start error ms</th><th>Number</th><th>Shown at s</th><th>Correct</th></tr>' +
-      log.map(r => `<tr><td>${r.part}</td><td>${r.side}</td><td>${r.scheduled}</td><td>${r.err}</td><td>${r.num}</td><td>${r.at===null?'not shown':r.at}</td><td>${r.correct}</td></tr>`).join('') + '</table>';
+    $('logBox').innerHTML = '<table><tr><th>Part</th><th>Side</th><th>Scheduled</th><th>Start error ms</th><th>Number</th><th>Shown at s</th></tr>' +
+      log.map(r => `<tr><td>${r.part}</td><td>${r.side}</td><td>${r.scheduled}</td><td>${r.err}</td><td>${r.num}</td><td>${r.at===null?'not shown':r.at}</td></tr>`).join('') + '</table>';
     $('logBox').hidden = false; $('copyBtn').hidden = false;
   };
   $('copyBtn').onclick = () => {
-    const csv = 'probe_code,part,side,scheduled,start_error_ms,probe_number,probe_shown_at_s,correct_letter\n' +
-      log.map(r => `"${cfg.code.replace(/"/g,'""')}",${r.part},${r.side},${r.scheduled},${r.err},${r.num},${r.at===null?'':r.at},${r.correct}`).join('\n');
+    const csv = 'probe_code,part,side,scheduled,start_error_ms,probe_number,probe_shown_at_s\n' +
+      log.map(r => `"${cfg.code.replace(/"/g,'""')}",${r.part},${r.side},${r.scheduled},${r.err},${r.num},${r.at===null?'':r.at}`).join('\n');
     navigator.clipboard.writeText(csv).then(() => { $('copyBtn').textContent = 'Copied'; })
       .catch(() => { $('copyBtn').textContent = 'Copy not available here'; });
   };
