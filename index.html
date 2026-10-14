@@ -63,7 +63,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 #hud{position:absolute;left:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px));color:#5a5a5a;font-family:var(--f-mono);font-size:12px;user-select:none}
 #stopBtn{position:absolute;right:12px;top:calc(10px + env(safe-area-inset-top,0px));background:transparent;color:#4a4a4a;border:1px solid #2a2a2a;font-size:12px;padding:6px 10px;font-weight:400}
 #stopBtn.confirm{color:#ff8a80;border-color:#ff8a80}
-#probe{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-weight:600;font-size:clamp(48px,11vmin,120px);line-height:1;color:#fff;background:rgba(0,0,0,.62);padding:.12em .28em;border-radius:.12em;font-variant-numeric:tabular-nums;pointer-events:none}
+/* Number check: a white card over 90% x 90% of the screen (81% of its area), black digits, centered. */
+#probe{position:absolute;inset:5%;display:flex;align-items:center;justify-content:center;background:#fff;color:#000;border-radius:2vmin;font-family:var(--f-mono);font-weight:700;font-size:min(50vw,70vh);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;pointer-events:none;z-index:5}
 .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4vmin;color:#e8e8e8;text-align:center;padding:24px}
 .overlay .part{font-family:var(--f-display);font-size:clamp(28px,6vmin,56px);font-weight:700;color:#fff}
 .overlay .ask{font-size:clamp(20px,4vmin,36px);max-width:24ch}
@@ -208,7 +209,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     const dateTxt = cfg.date ? new Date(cfg.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) : '';
     $('sideSub').textContent = ['Day ' + cfg.day, cfg.pid ? 'Participant ' + cfg.pid : '', dateTxt].filter(Boolean).join(' · ');
     const mins = Math.max(1, Math.round((cfg.seq.reduce((a, x) => a + x[2] - x[1], 0) + (cfg.gap || 0) * (cfg.seq.length - 1)) / 60));
-    const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li><li>Keep a pen and paper nearby. Write down each number that appears on the screen.</li>';
+    const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li><li>Open your Daily Session Log form on your own device and be ready to catch the numbers that will show randomly during the video.</li>';
     $('steps').innerHTML = L
       ? common + '<li>When you are all ready, tap the <b>Start</b> button on this tablet.</li><li>Then tap <b>Ready</b> on the Right tablet.</li>'
       : common + '<li>When you are all ready, tap the <b>Start</b> button on the Left tablet.</li><li>Then tap <b>Ready</b> on this tablet. It will start with the Left tablet by itself.</li>';
@@ -235,7 +236,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     else if(!videoUrl) err = 'Choose the video file to continue.';
     else if(!cfg.video && isFinite(localDur) && localDur + 0.5 < need) err = `This video is shorter than expected (${Math.floor(localDur/60)}:${pad(Math.round(localDur%60))}). Check that you chose the right file.`;
     $('readyMsg').className = 'msg' + (err ? ' err' : '');
-    $('readyMsg').textContent = err || 'Ready.';
+    $('readyMsg').textContent = err;
+    $('readyMsg').hidden = !err;
     $('startBtn').disabled = !!err;
     $('readyBtn').disabled = !!err;
     readyErr = !!err; lastPickKey = ''; renderPicker();
@@ -442,7 +444,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
       log.push(entry);
       try{ await p; }catch(err){ hud('Playback was blocked. Tap Stop twice and tap Start again.'); }
       const probeEl = $('probe'); let shownAt = null, clipDone = false;
-      probeEl.textContent = pr.num; probeEl.style.left = pr.x + '%'; probeEl.style.top = pr.y + '%';
+      probeEl.textContent = pr.num;
       (function watch(){
         if(clipDone || !running){ probeEl.hidden = true; return; }
         const ct = vid.currentTime - s;
