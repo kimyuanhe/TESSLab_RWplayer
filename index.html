@@ -207,7 +207,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('sideBig').textContent = L ? 'LEFT TABLET' : 'RIGHT TABLET';
     const dateTxt = cfg.date ? new Date(cfg.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) : '';
     $('sideSub').textContent = ['Day ' + cfg.day, cfg.pid ? 'Participant ' + cfg.pid : '', dateTxt].filter(Boolean).join(' · ');
-    const dMin = waitMin(), mins = Math.max(1, Math.round((cfg.seq.reduce((a, x) => a + x[2] - x[1], 0) + (cfg.gap || 0) * (cfg.seq.length - 1)) / 60));
+    const mins = Math.max(1, Math.round((cfg.seq.reduce((a, x) => a + x[2] - x[1], 0) + (cfg.gap || 0) * (cfg.seq.length - 1)) / 60));
     const common = '<li>Sit in a comfortable chair.</li><li>Put on the electrodes.</li><li>Put on the headphones.</li><li>Turn the headphones on.</li><li>Keep a pen and paper nearby. Write down each number that appears on the screen.</li>';
     $('steps').innerHTML = L
       ? common + '<li>When you are all ready, tap the <b>Start</b> button on this tablet.</li><li>Then tap <b>Ready</b> on the Right tablet.</li>'
@@ -215,7 +215,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
     $('startBtn').hidden = !L;
     $('pickWrap').hidden = L;
     $('delayHint').textContent = L
-      ? `The session begins ${dMin} minutes after the minute you tap Start, and lasts about ${mins} minutes.`
+      ? `The session begins at the first whole minute ${waitText()} after you tap Start, and lasts about ${mins} minutes.`
       : `The session lasts about ${mins} minutes.`;
     lastPickKey = '';
     videoUrl = cfg.video || '';
@@ -245,11 +245,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
   // Left: start = the whole minute of the tap + wait. Right: the participant picks that same time.
   let readyErr = true, lastPickKey = '';
   const MIN = 60000;
-  const waitMin = () => Math.max(2, Math.round((cfg && cfg.delay || 120) / 60));
+  // lead time before the start: the Builder's wait, but never under 10 s so the Right tablet can join
+  const leadMs = () => Math.max(10000, (cfg && isFinite(cfg.delay) ? cfg.delay : 120) * 1000);
+  const waitText = () => { const d = cfg && isFinite(cfg.delay) ? cfg.delay : 120; return d < 60 ? `at least ${Math.max(10, Math.round(d))} seconds` : `at least ${+(d/60).toFixed(1)} minutes`; };
+  const startFrom = t => Math.ceil((t + leadMs()) / MIN) * MIN;
   const fmtClock = t => new Date(t).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   function candidates(){
     // times the Left tablet could be showing if it was tapped in the last few minutes
-    const base = Math.floor(now()/MIN)*MIN + waitMin()*MIN, out = [];
+    const base = startFrom(now()), out = [];
     for(let k = 2; k >= 0; k--){ const t = base - k*MIN; if(t - now() >= 15000) out.push(t); }
     return out;
   }
@@ -357,7 +360,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 
   // ---------- start ----------
   let stopListen = null, joinMode = '', relayState = '', joinAt = 0;
-  $('startBtn').onclick = () => beginSession(Math.floor(now()/MIN)*MIN + waitMin()*MIN, 'left');
+  $('startBtn').onclick = () => beginSession(startFrom(now()), 'left');
   $('readyBtn').onclick = () => beginSession(null, 'auto');
   async function beginSession(start, mode){
     // runs inside the tap, which lets the tablet play sound later
